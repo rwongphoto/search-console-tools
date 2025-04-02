@@ -5,3 +5,5 @@ nltk
 scikit-learn
 plotly
 openpyxl
+transformers
+torch
