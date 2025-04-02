@@ -4,86 +4,91 @@ import numpy as np
 import collections
 from collections import Counter
 import nltk
-from nltk.tokenize import word_tokenize
+# NLTK is needed for stopwords in generate_topic_label and CountVectorizer
 from nltk.corpus import stopwords
 from sklearn.decomposition import LatentDirichletAllocation
 from sklearn.feature_extraction.text import CountVectorizer
 import plotly.express as px
+import traceback # For detailed error logging if needed
 
 # ------------------------------------
-# Helper Functions for GSC Tool
+# Helper Functions (Restored from Original)
 # ------------------------------------
 
-# Download necessary NLTK data if not already present
-# Using LookupError which is raised by nltk.data.find() when resource not found
+# Download NLTK data if necessary - Check added for robustness
 try:
     nltk.data.find('corpora/stopwords')
-    # st.write("Stopwords found.") # Optional: for debugging
-except LookupError: # CORRECTED: Use LookupError
-    # st.write("Stopwords not found, downloading...") # Optional: for debugging
+except LookupError:
     nltk.download('stopwords')
 try:
-    nltk.data.find('tokenizers/punkt')
-    # st.write("Punkt found.") # Optional: for debugging
-except LookupError: # CORRECTED: Use LookupError
-    # st.write("Punkt not found, downloading...") # Optional: for debugging
+    nltk.data.find('tokenizers/punkt') # Punkt might be needed implicitly by vectorizers/tokenizers
+except LookupError:
     nltk.download('punkt')
 
-# Load stopwords once (after ensuring they are downloaded)
+# Load stopwords - Error handling added
 try:
-    stop_words = set(stopwords.words('english'))
+    nltk_stop_words = set(stopwords.words('english'))
 except Exception as e:
-    st.error(f"Failed to load NLTK stopwords after download attempt: {e}")
-    # Provide a basic fallback or stop execution
-    stop_words = set(['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll", 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't", 'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't", 'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't", 'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"])
-    st.warning("Using a basic default list of stopwords as NLTK list failed to load.")
+    st.error(f"Error loading NLTK stopwords: {e}. Using a basic fallback list.")
+    nltk_stop_words = set(['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll", 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't", 'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't", 'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't", 'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"])
 
 
+# generate_topic_label restored from the *very first* code block provided.
+# Note: This version's stopword handling might differ slightly from CountVectorizer's.
 def generate_topic_label(queries_in_topic):
-    """Generates a simple topic label from the most common words in a list of queries."""
     words = []
     for query in queries_in_topic:
-        # Ensure query is a string before processing
+        # Original used simple split, assuming query is string
         if isinstance(query, str):
-            tokens = query.lower().split()
-            # Use the pre-loaded stop_words set
-            filtered = [t for t in tokens if t not in stop_words and t.isalnum()] # Added isalnum() check
-            words.extend(filtered)
-        # Optionally handle non-string inputs, e.g., log a warning or skip
-        # else:
-        #     st.warning(f"Skipping non-string query in topic labeling: {query}")
-
+             tokens = query.lower().split()
+             words.extend(tokens)
+        # else: ignore non-strings silently as likely original behavior
     if words:
         freq = collections.Counter(words)
-        common = freq.most_common(2) # Top 2 most common words
+        # Remove common stop words *after* counting for label generation
+        # Use the loaded nltk_stop_words
+        for sw in list(nltk_stop_words): # Iterate over a copy
+             if sw in freq: # Check if stopword exists before deleting
+                 del freq[sw]
+        # Get top 2 non-stopwords
+        common = freq.most_common(2)
         label = ", ".join([word for word, count in common])
-        return label.capitalize()
+        # Add fallback for empty label after stopword removal
+        return label.capitalize() if label else "Topic Cluster"
     else:
-        # Handle cases where no valid words are found after filtering
-        # Maybe return the first query or a generic label
-        if queries_in_topic:
-             # Fallback: return first query if available and is string
-             first_query = queries_in_topic[0]
-             return str(first_query)[:30] + "..." if isinstance(first_query, str) else "Topic Cluster"
+        # Fallback if no words at all
+         return "Unnamed Topic"
+
+# Original CTR parsing logic helper (extracted from original code's implementation)
+def parse_ctr_original(ctr):
+    try:
+        if isinstance(ctr, str) and "%" in ctr:
+            # Original parsed to percentage value (e.g., 5.5 for 5.5%)
+            return float(ctr.replace("%", "").replace(',', ''))
         else:
-            return "Unnamed Topic" # Or some other placeholder
+            # Attempt conversion, return NaN on failure
+            return pd.to_numeric(ctr, errors='coerce')
+    except Exception:
+        # Catch any unexpected error during parsing
+        return np.nan
 
 
 # ------------------------------------
-# GSC Analyzer Tool Function
+# GSC Analyzer Tool Function (Restored from Original)
 # ------------------------------------
 
 def google_search_console_analysis_page():
     st.header("Google Search Console Data Analysis")
+    # Using the exact markdown from the original code
     st.markdown(
         """
-        Identify key topics contributing to your SEO performance by comparing GSC query data from two different time periods.
+        The goal is to identify key topics that are contributing to your SEO performance.
+        This tool lets you compare GSC query data from two different time periods. I recommend limiting to the top 1,000 queries as this can take awhile to process.
         Upload CSV files (one for the 'Before' period and one for the 'After' period), and the tool will:
-        - Classify queries into topics using Latent Dirichlet Allocation (LDA).
+        - Classify queries into topics with descriptive labels using LDA.
         - Display the original merged data table with topic labels.
-        - Aggregate metrics by topic.
-        - Visualize the Year-over-Year (YoY) % change by topic for each metric.
-        *Note: Ensure your CSVs contain 'Top queries' and 'Position' columns. Other typical GSC columns like 'Clicks', 'Impressions', 'CTR' are optional but recommended.*
+        - Aggregate metrics by topic, with an option to display more rows.
+        - Visualize the YOY % change by topic for each metric.
         """
     )
 
@@ -92,576 +97,504 @@ def google_search_console_analysis_page():
     uploaded_file_after = st.file_uploader("Upload GSC CSV for 'After' period", type=["csv"], key="gsc_after")
 
     if uploaded_file_before is not None and uploaded_file_after is not None:
-        # Initialize the progress bar
+        # Note: Original code didn't have progress bar, but it's kept for UX.
         progress_bar = st.progress(0)
-        status_text = st.empty() # Placeholder for status updates
+        status_text = st.empty() # Added for status updates
 
         try:
             status_text.text("Reading CSV files...")
             # Step 1: Read the original CSV files
-            # Use low_memory=False for potentially mixed type columns which GSC exports sometimes have
-            df_before = pd.read_csv(uploaded_file_before, low_memory=False)
-            df_after = pd.read_csv(uploaded_file_after, low_memory=False)
+            df_before = pd.read_csv(uploaded_file_before)
+            df_after = pd.read_csv(uploaded_file_after)
             progress_bar.progress(10)
 
             status_text.text("Validating columns...")
-            # Step 2: Check required columns and rename
-            required_before = {"Top queries", "Position"}
-            required_after = {"Top queries", "Position"}
-            if not required_before.issubset(df_before.columns):
-                st.error(f"The 'Before' CSV must contain columns: {', '.join(required_before)}")
+            # Step 2: Check required columns (as per original)
+            if "Top queries" not in df_before.columns or "Position" not in df_before.columns:
+                st.error("The 'Before' CSV must contain 'Top queries' and 'Position' columns.")
                 return
-            if not required_after.issubset(df_after.columns):
-                st.error(f"The 'After' CSV must contain columns: {', '.join(required_after)}")
+            if "Top queries" not in df_after.columns or "Position" not in df_after.columns:
+                st.error("The 'After' CSV must contain 'Top queries' and 'Position' columns.")
                 return
-
-            # Standardize column names early
-            df_before.rename(columns={"Top queries": "Query", "Position": "Average Position"}, inplace=True)
-            df_after.rename(columns={"Top queries": "Query", "Position": "Average Position"}, inplace=True)
             progress_bar.progress(15)
 
-            # --- Dashboard Summary ---
+            # --- Dashboard Summary (using logic derived from original display) ---
             status_text.text("Calculating dashboard summary...")
-            st.markdown("## Overall Performance Change (YoY)")
-
-            # Helper function to safely calculate percentage change
-            def calculate_pct_change(val_after, val_before):
-                # Ensure inputs are numeric before division
-                val_after = pd.to_numeric(val_after, errors='coerce')
-                val_before = pd.to_numeric(val_before, errors='coerce')
-                if pd.isna(val_before) or pd.isna(val_after) or val_before == 0:
-                    return 0.0 # Or np.nan if you prefer to show blanks
-                return ((val_after - val_before) / val_before) * 100
-
-            # Helper function to parse CTR (handles strings with '%' and numbers)
-            def parse_ctr(ctr_value):
-                if pd.isna(ctr_value):
-                    return np.nan
-                if isinstance(ctr_value, str):
-                    try:
-                        # Handle potential commas in string numbers if GSC export includes them
-                        return float(ctr_value.strip().replace('%', '').replace(',', '')) / 100.0
-                    except ValueError:
-                        return np.nan # Handle cases where string conversion fails
-                elif isinstance(ctr_value, (int, float)):
-                     # Assume GSC provides CTR as percentage (e.g., 5.5 for 5.5%)
-                    return float(ctr_value) / 100.0
-                return np.nan # Fallback for unexpected types
+            st.markdown("## Dashboard Summary")
+            # Use copies for renaming to avoid modifying originals before merge
+            df_before_renamed = df_before.rename(columns={"Top queries": "Query", "Position": "Average Position"})
+            df_after_renamed = df_after.rename(columns={"Top queries": "Query", "Position": "Average Position"})
+            progress_bar.progress(20)
 
             cols = st.columns(4)
-            metrics_calculated = 0
-
-            # Clicks
-            if "Clicks" in df_before.columns and "Clicks" in df_after.columns:
-                # Handle potential non-numeric values like '<10' if present
-                df_before["Clicks"] = pd.to_numeric(df_before["Clicks"], errors='coerce').fillna(0)
-                df_after["Clicks"] = pd.to_numeric(df_after["Clicks"], errors='coerce').fillna(0)
-                total_clicks_before = df_before["Clicks"].sum()
-                total_clicks_after = df_after["Clicks"].sum()
+            # Clicks (Original assumes numeric or coercible)
+            if "Clicks" in df_before_renamed.columns and "Clicks" in df_after_renamed.columns:
+                total_clicks_before = pd.to_numeric(df_before_renamed["Clicks"], errors='coerce').fillna(0).sum()
+                total_clicks_after = pd.to_numeric(df_after_renamed["Clicks"], errors='coerce').fillna(0).sum()
                 overall_clicks_change = total_clicks_after - total_clicks_before
-                overall_clicks_change_pct = calculate_pct_change(total_clicks_after, total_clicks_before)
-                cols[0].metric(label="Total Clicks Change", value=f"{overall_clicks_change:,.0f}", delta=f"{overall_clicks_change_pct:.1f}%")
-                metrics_calculated +=1
+                overall_clicks_change_pct = (overall_clicks_change / total_clicks_before * 100) if total_clicks_before != 0 else 0
+                cols[0].metric(label="Clicks Change", value=f"{overall_clicks_change:,.0f}", delta=f"{overall_clicks_change_pct:.1f}%")
             else:
-                cols[0].metric(label="Total Clicks Change", value="N/A", delta="Missing Data")
+                cols[0].metric(label="Clicks Change", value="N/A")
 
-            # Impressions
-            if "Impressions" in df_before.columns and "Impressions" in df_after.columns:
-                df_before["Impressions"] = pd.to_numeric(df_before["Impressions"], errors='coerce').fillna(0)
-                df_after["Impressions"] = pd.to_numeric(df_after["Impressions"], errors='coerce').fillna(0)
-                total_impressions_before = df_before["Impressions"].sum()
-                total_impressions_after = df_after["Impressions"].sum()
+            # Impressions (Original assumes numeric or coercible)
+            if "Impressions" in df_before_renamed.columns and "Impressions" in df_after_renamed.columns:
+                total_impressions_before = pd.to_numeric(df_before_renamed["Impressions"], errors='coerce').fillna(0).sum()
+                total_impressions_after = pd.to_numeric(df_after_renamed["Impressions"], errors='coerce').fillna(0).sum()
                 overall_impressions_change = total_impressions_after - total_impressions_before
-                overall_impressions_change_pct = calculate_pct_change(total_impressions_after, total_impressions_before)
-                cols[1].metric(label="Total Impressions Change", value=f"{overall_impressions_change:,.0f}", delta=f"{overall_impressions_change_pct:.1f}%")
-                metrics_calculated +=1
+                overall_impressions_change_pct = (overall_impressions_change / total_impressions_before * 100) if total_impressions_before != 0 else 0
+                cols[1].metric(label="Impressions Change", value=f"{overall_impressions_change:,.0f}", delta=f"{overall_impressions_change_pct:.1f}%")
             else:
-                cols[1].metric(label="Total Impressions Change", value="N/A", delta="Missing Data")
+                cols[1].metric(label="Impressions Change", value="N/A")
 
-            # Average Position
-            df_before["Average Position"] = pd.to_numeric(df_before["Average Position"], errors='coerce')
-            df_after["Average Position"] = pd.to_numeric(df_after["Average Position"], errors='coerce')
+            # Average Position (Original used simple mean)
+            overall_avg_position_before = pd.to_numeric(df_before_renamed["Average Position"], errors='coerce').mean()
+            overall_avg_position_after = pd.to_numeric(df_after_renamed["Average Position"], errors='coerce').mean()
+            # Original position change calculation: Before - After
+            overall_position_change = overall_avg_position_before - overall_avg_position_after
+            overall_position_change_pct = (overall_position_change / overall_avg_position_before * 100) if pd.notna(overall_avg_position_before) and overall_avg_position_before != 0 else 0
+            # Original delta display (shows absolute change, % change as delta string)
+            cols[2].metric(label="Avg. Position Change", value=f"{overall_position_change:.1f}", delta=f"{overall_position_change_pct:.1f}%")
 
-            # Calculate weighted average position if impressions available, handle NaNs
-            valid_pos_before = df_before.dropna(subset=["Average Position"])
-            if "Impressions" in valid_pos_before.columns and valid_pos_before["Impressions"].sum() > 0:
-                 valid_pos_before_weighted = valid_pos_before.dropna(subset=["Impressions"])
-                 if not valid_pos_before_weighted.empty:
-                      overall_avg_position_before = np.average(valid_pos_before_weighted["Average Position"], weights=valid_pos_before_weighted["Impressions"])
-                 else:
-                      overall_avg_position_before = valid_pos_before["Average Position"].mean() # Fallback if no impressions
+            # CTR (Original parsing and simple mean)
+            if "CTR" in df_before_renamed.columns and "CTR" in df_after_renamed.columns:
+                df_before_renamed["CTR_parsed"] = df_before_renamed["CTR"].apply(parse_ctr_original)
+                df_after_renamed["CTR_parsed"] = df_after_renamed["CTR"].apply(parse_ctr_original)
+                overall_ctr_before = df_before_renamed["CTR_parsed"].mean()
+                overall_ctr_after = df_after_renamed["CTR_parsed"].mean()
+                overall_ctr_change = overall_ctr_after - overall_ctr_before
+                overall_ctr_change_pct = (overall_ctr_change / overall_ctr_before * 100) if pd.notna(overall_ctr_before) and overall_ctr_before != 0 else 0
+                # Original delta display (shows absolute change in pp, % change as delta string)
+                cols[3].metric(label="CTR Change", value=f"{overall_ctr_change:.2f}", delta=f"{overall_ctr_change_pct:.1f}%")
             else:
-                 overall_avg_position_before = valid_pos_before["Average Position"].mean() if not valid_pos_before.empty else np.nan
-
-            valid_pos_after = df_after.dropna(subset=["Average Position"])
-            if "Impressions" in valid_pos_after.columns and valid_pos_after["Impressions"].sum() > 0:
-                 valid_pos_after_weighted = valid_pos_after.dropna(subset=["Impressions"])
-                 if not valid_pos_after_weighted.empty:
-                      overall_avg_position_after = np.average(valid_pos_after_weighted["Average Position"], weights=valid_pos_after_weighted["Impressions"])
-                 else:
-                      overall_avg_position_after = valid_pos_after["Average Position"].mean() # Fallback if no impressions
-            else:
-                 overall_avg_position_after = valid_pos_after["Average Position"].mean() if not valid_pos_after.empty else np.nan
-
-
-            if pd.notna(overall_avg_position_before) and pd.notna(overall_avg_position_after):
-                 overall_position_change = overall_avg_position_after - overall_avg_position_before # Lower is better
-                 cols[2].metric(label="Avg. Position Change", value=f"{overall_avg_position_after:.1f}", delta=f"{overall_position_change:.1f}", delta_color="inverse")
-            else:
-                 cols[2].metric(label="Avg. Position Change", value="N/A", delta="Cannot calc.")
-            metrics_calculated +=1
-
-
-            # CTR
-            if "CTR" in df_before.columns and "CTR" in df_after.columns:
-                df_before["CTR_parsed"] = df_before["CTR"].apply(parse_ctr)
-                df_after["CTR_parsed"] = df_after["CTR"].apply(parse_ctr)
-
-                # Calculate weighted average CTR if impressions available, handle NaNs
-                valid_ctr_before = df_before.dropna(subset=["CTR_parsed"])
-                if "Impressions" in valid_ctr_before.columns and valid_ctr_before["Impressions"].sum() > 0:
-                     valid_ctr_before_weighted = valid_ctr_before.dropna(subset=["Impressions"])
-                     if not valid_ctr_before_weighted.empty:
-                          overall_ctr_before = np.average(valid_ctr_before_weighted["CTR_parsed"], weights=valid_ctr_before_weighted["Impressions"])
-                     else:
-                          overall_ctr_before = valid_ctr_before["CTR_parsed"].mean()
-                else:
-                     overall_ctr_before = valid_ctr_before["CTR_parsed"].mean() if not valid_ctr_before.empty else np.nan
-
-                valid_ctr_after = df_after.dropna(subset=["CTR_parsed"])
-                if "Impressions" in valid_ctr_after.columns and valid_ctr_after["Impressions"].sum() > 0:
-                     valid_ctr_after_weighted = valid_ctr_after.dropna(subset=["Impressions"])
-                     if not valid_ctr_after_weighted.empty:
-                          overall_ctr_after = np.average(valid_ctr_after_weighted["CTR_parsed"], weights=valid_ctr_after_weighted["Impressions"])
-                     else:
-                          overall_ctr_after = valid_ctr_after["CTR_parsed"].mean()
-                else:
-                     overall_ctr_after = valid_ctr_after["CTR_parsed"].mean() if not valid_ctr_after.empty else np.nan
-
-                if pd.notna(overall_ctr_before) and pd.notna(overall_ctr_after):
-                     overall_ctr_change = overall_ctr_after - overall_ctr_before
-                     # Display CTR as percentage, change in percentage points
-                     cols[3].metric(label="Avg. CTR Change", value=f"{overall_ctr_after*100:.2f}%", delta=f"{overall_ctr_change*100:.2f}pp") # pp = percentage points
-                else:
-                     cols[3].metric(label="Avg. CTR Change", value="N/A", delta="Cannot calc.")
-                metrics_calculated +=1
-            else:
-                cols[3].metric(label="Avg. CTR Change", value="N/A", delta="Missing Data")
-
-            if metrics_calculated < 4:
-                 st.warning("Some summary metrics could not be calculated due to missing columns (Clicks, Impressions, or CTR) or lack of numeric data.")
+                cols[3].metric(label="CTR Change", value="N/A")
             progress_bar.progress(30)
 
-
-            # Step 3: Merge Data for Detailed Analysis
-            status_text.text("Merging datasets...")
-            # Use outer merge to keep queries present in only one period
-            merged_df = pd.merge(df_before, df_after, on="Query", suffixes=("_before", "_after"), how="outer")
-
-            # Identify numeric columns for filling NaNs (excluding positions, CTR initially)
-            numeric_cols_to_fill = []
-            if "Clicks_before" in merged_df: numeric_cols_to_fill.append("Clicks_before")
-            if "Clicks_after" in merged_df: numeric_cols_to_fill.append("Clicks_after")
-            if "Impressions_before" in merged_df: numeric_cols_to_fill.append("Impressions_before")
-            if "Impressions_after" in merged_df: numeric_cols_to_fill.append("Impressions_after")
-
-            for col in numeric_cols_to_fill:
-                 merged_df[col] = merged_df[col].fillna(0)
-            # Keep NaNs for Position and CTR parsed columns to represent absence
-            if "Average Position_before" in merged_df: merged_df["Average Position_before"] = pd.to_numeric(merged_df["Average Position_before"], errors='coerce')
-            if "Average Position_after" in merged_df: merged_df["Average Position_after"] = pd.to_numeric(merged_df["Average Position_after"], errors='coerce')
-            if "CTR_parsed_before" in merged_df: merged_df["CTR_parsed_before"] = merged_df["CTR_parsed_before"] # Already parsed
-            if "CTR_parsed_after" in merged_df: merged_df["CTR_parsed_after"] = merged_df["CTR_parsed_after"] # Already parsed
-
+            status_text.text("Merging datasets (inner join)...")
+            # Step 3: Merge Data (Original used inner merge on 'Top queries' by default)
+            merged_df = pd.merge(df_before, df_after, on="Top queries", suffixes=("_before", "_after"), how="inner")
             progress_bar.progress(35)
 
-            # Calculate YOY changes
+            # Stop if merge results in empty dataframe
+            if merged_df.empty:
+                st.warning("No common queries found between the two periods. Analysis cannot proceed.")
+                status_text.text("Analysis stopped: No common queries.")
+                progress_bar.progress(100)
+                return
+
             status_text.text("Calculating YoY changes...")
-            # Note: Subtracting with NaNs results in NaN, which is desired here
-            merged_df["Position_YOY"] = merged_df["Average Position_after"] - merged_df["Average Position_before"] # Lower is better
+            # Rename columns *after* merge for calculations
+            merged_df.rename(columns={"Top queries": "Query",
+                                      "Position_before": "Average Position_before",
+                                      "Position_after": "Average Position_after"}, inplace=True)
+
+            # --- Calculate YOY changes (Original Logic Style) ---
+            # Coerce to numeric, fillna might not have been explicitly done, but safer to include for calculations
+            merged_df["Average Position_before"] = pd.to_numeric(merged_df["Average Position_before"], errors='coerce')
+            merged_df["Average Position_after"] = pd.to_numeric(merged_df["Average Position_after"], errors='coerce')
+            # Original Position Change: Before - After
+            merged_df["Position_YOY"] = merged_df["Average Position_before"] - merged_df["Average Position_after"]
+
             if "Clicks_before" in merged_df.columns and "Clicks_after" in merged_df.columns:
-                merged_df["Clicks_YOY"] = merged_df["Clicks_after"] - merged_df["Clicks_before"]
+                # Fillna(0) before diff is common if original assumed presence
+                merged_df["Clicks_before_num"] = pd.to_numeric(merged_df["Clicks_before"], errors='coerce').fillna(0)
+                merged_df["Clicks_after_num"] = pd.to_numeric(merged_df["Clicks_after"], errors='coerce').fillna(0)
+                merged_df["Clicks_YOY"] = merged_df["Clicks_after_num"] - merged_df["Clicks_before_num"]
+            else: merged_df["Clicks_YOY"] = np.nan # Ensure column exists
+
             if "Impressions_before" in merged_df.columns and "Impressions_after" in merged_df.columns:
-                merged_df["Impressions_YOY"] = merged_df["Impressions_after"] - merged_df["Impressions_before"]
-            if "CTR_parsed_before" in merged_df.columns and "CTR_parsed_after" in merged_df.columns:
+                merged_df["Impressions_before_num"] = pd.to_numeric(merged_df["Impressions_before"], errors='coerce').fillna(0)
+                merged_df["Impressions_after_num"] = pd.to_numeric(merged_df["Impressions_after"], errors='coerce').fillna(0)
+                merged_df["Impressions_YOY"] = merged_df["Impressions_after_num"] - merged_df["Impressions_before_num"]
+            else: merged_df["Impressions_YOY"] = np.nan
+
+            if "CTR_before" in merged_df.columns and "CTR_after" in merged_df.columns:
+                # Use the original parsing logic
+                merged_df["CTR_parsed_before"] = merged_df["CTR_before"].apply(parse_ctr_original)
+                merged_df["CTR_parsed_after"] = merged_df["CTR_after"].apply(parse_ctr_original)
+                # Calculate difference; result is NaN if either input is NaN
                 merged_df["CTR_YOY"] = merged_df["CTR_parsed_after"] - merged_df["CTR_parsed_before"]
+            else: merged_df["CTR_YOY"] = np.nan
 
-            # Calculate YOY percentage changes - use helper function which handles NaNs/zeros
+
+            # --- Calculate YOY percentage changes (Original Logic Style) ---
             merged_df["Position_YOY_pct"] = merged_df.apply(
-                lambda row: calculate_pct_change(row["Average Position_after"], row["Average Position_before"]), axis=1
+                lambda row: (row["Position_YOY"] / row["Average Position_before"] * 100)
+                if pd.notna(row["Position_YOY"]) and pd.notna(row["Average Position_before"]) and row["Average Position_before"] != 0
+                else np.nan, axis=1
             )
-            if "Clicks_YOY" in merged_df.columns:
-                 merged_df["Clicks_YOY_pct"] = merged_df.apply(lambda row: calculate_pct_change(row["Clicks_after"], row["Clicks_before"]), axis=1)
-            if "Impressions_YOY" in merged_df.columns:
-                merged_df["Impressions_YOY_pct"] = merged_df.apply(lambda row: calculate_pct_change(row["Impressions_after"], row["Impressions_before"]), axis=1)
-            if "CTR_YOY" in merged_df.columns:
-                merged_df["CTR_YOY_pct"] = merged_df.apply(lambda row: calculate_pct_change(row["CTR_parsed_after"], row["CTR_parsed_before"]), axis=1)
+            if "Clicks_YOY" in merged_df.columns and "Clicks_before_num" in merged_df.columns:
+                merged_df["Clicks_YOY_pct"] = merged_df.apply(
+                    lambda row: (row["Clicks_YOY"] / row["Clicks_before_num"] * 100)
+                    if pd.notna(row["Clicks_YOY"]) and pd.notna(row["Clicks_before_num"]) and row["Clicks_before_num"] != 0
+                    else np.nan, axis=1
+                )
+            else: merged_df["Clicks_YOY_pct"] = np.nan
 
-            # Define columns to display in the merged table
-            display_cols_merged = ["Query"]
-            # Add columns if they exist in the merged_df
-            if "Average Position_before" in merged_df: display_cols_merged.extend(["Average Position_before", "Average Position_after", "Position_YOY", "Position_YOY_pct"])
-            if "Clicks_before" in merged_df: display_cols_merged.extend(["Clicks_before", "Clicks_after", "Clicks_YOY", "Clicks_YOY_pct"])
-            if "Impressions_before" in merged_df: display_cols_merged.extend(["Impressions_before", "Impressions_after", "Impressions_YOY", "Impressions_YOY_pct"])
-            # Display CTR as percentages using the parsed values
-            if "CTR_parsed_before" in merged_df:
-                merged_df["CTR %_before"] = merged_df["CTR_parsed_before"] * 100
-                display_cols_merged.append("CTR %_before")
-            if "CTR_parsed_after" in merged_df:
-                 merged_df["CTR %_after"] = merged_df["CTR_parsed_after"] * 100
-                 display_cols_merged.append("CTR %_after")
-            if "CTR_YOY" in merged_df:
-                 merged_df["CTR %_YOY"] = merged_df["CTR_YOY"] * 100 # Change in percentage points
-                 display_cols_merged.append("CTR %_YOY")
-            if "CTR_YOY_pct" in merged_df:
-                 merged_df["CTR %_YOY_pct"] = merged_df["CTR_YOY_pct"] # This is the relative % change
-                 display_cols_merged.append("CTR %_YOY_pct")
+            if "Impressions_YOY" in merged_df.columns and "Impressions_before_num" in merged_df.columns:
+                merged_df["Impressions_YOY_pct"] = merged_df.apply(
+                    lambda row: (row["Impressions_YOY"] / row["Impressions_before_num"] * 100)
+                    if pd.notna(row["Impressions_YOY"]) and pd.notna(row["Impressions_before_num"]) and row["Impressions_before_num"] != 0
+                    else np.nan, axis=1
+                )
+            else: merged_df["Impressions_YOY_pct"] = np.nan
+
+            if "CTR_YOY" in merged_df.columns and "CTR_parsed_before" in merged_df.columns:
+                 merged_df["CTR_YOY_pct"] = merged_df.apply(
+                    lambda row: (row["CTR_YOY"] / row["CTR_parsed_before"] * 100)
+                    if pd.notna(row["CTR_YOY"]) and pd.notna(row["CTR_parsed_before"]) and row["CTR_parsed_before"] != 0
+                    else np.nan, axis=1
+                 )
+            else: merged_df["CTR_YOY_pct"] = np.nan
 
 
-            # Filter display_cols_merged to only include columns actually present NOW
-            display_cols_merged = [col for col in display_cols_merged if col in merged_df.columns]
-            merged_df_display_base = merged_df[display_cols_merged].copy() # Select only the columns for display
+            # --- Rearrange columns for display (Original Style) ---
+            # Define base columns based on renamed ones + calculated YOY
+            base_cols = ["Query", "Average Position_before", "Average Position_after", "Position_YOY", "Position_YOY_pct"]
+            # Add optional metric columns if they existed in the *original* merge result
+            if "Clicks_before" in merged_df.columns: # Check original name
+                base_cols += ["Clicks_before", "Clicks_after", "Clicks_YOY", "Clicks_YOY_pct"]
+            if "Impressions_before" in merged_df.columns:
+                base_cols += ["Impressions_before", "Impressions_after", "Impressions_YOY", "Impressions_YOY_pct"]
+            if "CTR_before" in merged_df.columns:
+                 # Display parsed CTR values if they were created
+                 if "CTR_parsed_before" in merged_df:
+                     base_cols += ["CTR_parsed_before", "CTR_parsed_after", "CTR_YOY", "CTR_YOY_pct"]
+                 else: # Otherwise display original CTR columns if parsed failed or wasn't present
+                     base_cols += ["CTR_before", "CTR_after", "CTR_YOY", "CTR_YOY_pct"]
+
+            # Ensure only columns that actually exist NOW are selected
+            final_base_cols = [col for col in base_cols if col in merged_df.columns]
+            merged_df_display_ready = merged_df[final_base_cols].copy()
             progress_bar.progress(40)
 
 
-            # --- Define formatting for merged data table display ---
+            # --- Define formatting (Original Style) ---
             format_dict_merged = {}
-            pct_format = "{:,.1f}%" # Format for percentage changes
-            pp_format = "{:,.1f}pp" # Format for percentage point changes
-            float_format = "{:,.1f}"
+            float_format = "{:.1f}"
             int_format = "{:,.0f}"
+            pct_format = "{:.2f}%" # Original used 2 decimal places for percentages
 
-            if "Average Position_before" in merged_df_display_base.columns: format_dict_merged["Average Position_before"] = float_format
-            if "Average Position_after" in merged_df_display_base.columns: format_dict_merged["Average Position_after"] = float_format
-            if "Position_YOY" in merged_df_display_base.columns: format_dict_merged["Position_YOY"] = float_format
-            if "Position_YOY_pct" in merged_df_display_base.columns: format_dict_merged["Position_YOY_pct"] = pct_format
-            if "Clicks_before" in merged_df_display_base.columns: format_dict_merged["Clicks_before"] = int_format
-            if "Clicks_after" in merged_df_display_base.columns: format_dict_merged["Clicks_after"] = int_format
-            if "Clicks_YOY" in merged_df_display_base.columns: format_dict_merged["Clicks_YOY"] = int_format
-            if "Clicks_YOY_pct" in merged_df_display_base.columns: format_dict_merged["Clicks_YOY_pct"] = pct_format
-            if "Impressions_before" in merged_df_display_base.columns: format_dict_merged["Impressions_before"] = int_format
-            if "Impressions_after" in merged_df_display_base.columns: format_dict_merged["Impressions_after"] = int_format
-            if "Impressions_YOY" in merged_df_display_base.columns: format_dict_merged["Impressions_YOY"] = int_format
-            if "Impressions_YOY_pct" in merged_df_display_base.columns: format_dict_merged["Impressions_YOY_pct"] = pct_format
-            if "CTR %_before" in merged_df_display_base.columns: format_dict_merged["CTR %_before"] = pct_format
-            if "CTR %_after" in merged_df_display_base.columns: format_dict_merged["CTR %_after"] = pct_format
-            if "CTR %_YOY" in merged_df_display_base.columns: format_dict_merged["CTR %_YOY"] = pp_format # Display change in pp
-            if "CTR %_YOY_pct" in merged_df_display_base.columns: format_dict_merged["CTR %_YOY_pct"] = pct_format # Display relative change
+            if "Average Position_before" in merged_df_display_ready.columns: format_dict_merged["Average Position_before"] = float_format
+            if "Average Position_after" in merged_df_display_ready.columns: format_dict_merged["Average Position_after"] = float_format
+            if "Position_YOY" in merged_df_display_ready.columns: format_dict_merged["Position_YOY"] = float_format
+            if "Clicks_before" in merged_df_display_ready.columns: format_dict_merged["Clicks_before"] = int_format
+            if "Clicks_after" in merged_df_display_ready.columns: format_dict_merged["Clicks_after"] = int_format
+            if "Clicks_YOY" in merged_df_display_ready.columns: format_dict_merged["Clicks_YOY"] = int_format
+            if "Impressions_before" in merged_df_display_ready.columns: format_dict_merged["Impressions_before"] = int_format
+            if "Impressions_after" in merged_df_display_ready.columns: format_dict_merged["Impressions_after"] = int_format
+            if "Impressions_YOY" in merged_df_display_ready.columns: format_dict_merged["Impressions_YOY"] = int_format
+            # Format parsed CTR if present, otherwise original columns
+            ctr_before_col_fmt = "CTR_parsed_before" if "CTR_parsed_before" in merged_df_display_ready.columns else "CTR_before"
+            ctr_after_col_fmt = "CTR_parsed_after" if "CTR_parsed_after" in merged_df_display_ready.columns else "CTR_after"
+            if ctr_before_col_fmt in merged_df_display_ready.columns: format_dict_merged[ctr_before_col_fmt] = pct_format
+            if ctr_after_col_fmt in merged_df_display_ready.columns: format_dict_merged[ctr_after_col_fmt] = pct_format
+            # Format YOY CTR as percentage points change
+            if "CTR_YOY" in merged_df_display_ready.columns: format_dict_merged["CTR_YOY"] = "{:,.2f}pp" # Use pp for clarity
 
+            # Percentage change formatting
+            if "Position_YOY_pct" in merged_df_display_ready.columns: format_dict_merged["Position_YOY_pct"] = pct_format
+            if "Clicks_YOY_pct" in merged_df_display_ready.columns: format_dict_merged["Clicks_YOY_pct"] = pct_format
+            if "Impressions_YOY_pct" in merged_df_display_ready.columns: format_dict_merged["Impressions_YOY_pct"] = pct_format
+            if "CTR_YOY_pct" in merged_df_display_ready.columns: format_dict_merged["CTR_YOY_pct"] = pct_format
 
-            # Step 4: Topic Classification using LDA
             status_text.text("Performing topic modeling (LDA)...")
-            st.markdown("### Topic Modeling and Detailed Query Data")
-            n_topics_gsc_lda = st.slider("Select number of topics for Query LDA:", min_value=2, max_value=20, value=8, key="lda_topics_gsc")
+            # --- Step 4: Topic Classification using LDA (Original Logic) ---
+            st.markdown("### Topic Classification and Combined Data")
+            st.markdown("Data for queries present in both periods, classified by topic.")
+            # Original slider setting default value 5
+            n_topics_gsc_lda = st.slider("Select number of topics for Query LDA:", min_value=2, max_value=15, value=5, key="lda_topics_gsc")
 
-            # Ensure Query column exists and handle potential NaNs before LDA
-            if "Query" not in merged_df.columns:
-                 st.error("Critical Error: 'Query' column is missing after merge.")
-                 return
-            queries = merged_df["Query"].dropna().astype(str).tolist() # Drop NaN queries before LDA
-
+            queries = merged_df["Query"].astype(str).tolist() # Use queries from inner merge
             if not queries:
-                 st.error("No valid queries found after dropping NaNs. Cannot perform topic modeling.")
-                 return
+                 st.error("No common queries to model topics.")
+                 return # Should have been caught earlier by empty merge check
 
+            # Use try-except for LDA robustness
             try:
-                # Use stop_words loaded earlier
-                vectorizer_queries_lda = CountVectorizer(stop_words=list(stop_words), max_df=0.9, min_df=3, token_pattern=r'\b[a-zA-Z]{2,}\b') # Require words with >= 2 letters
+                # Original used default CountVectorizer settings + stop_words="english"
+                vectorizer_queries_lda = CountVectorizer(stop_words="english")
                 query_matrix_lda = vectorizer_queries_lda.fit_transform(queries)
                 feature_names_queries_lda = vectorizer_queries_lda.get_feature_names_out()
 
-                if query_matrix_lda.shape[0] == 0 or query_matrix_lda.shape[1] == 0:
-                     st.warning("Could not create a valid document-term matrix for LDA. Check query data or adjust CountVectorizer parameters (min_df, max_df, stop_words). Assigning 'Unclassified'.")
-                     # Add 'Query_Topic' column with default value to the original merged_df
-                     merged_df["Query_Topic"] = "Unclassified"
+                if query_matrix_lda.shape[1] == 0: # Check if vocabulary is empty
+                    st.warning("LDA Warning: No features found after applying stop words. Assigning 'Unclassified'.")
+                    merged_df["Query_Topic"] = "Unclassified"
+                    merged_df["Query_Topic_Label"] = -1
                 else:
                     # Ensure n_topics is not greater than number of documents
                     actual_n_topics = min(n_topics_gsc_lda, query_matrix_lda.shape[0])
                     if actual_n_topics < n_topics_gsc_lda:
-                         st.warning(f"Reduced number of topics to {actual_n_topics} because it cannot exceed the number of documents ({query_matrix_lda.shape[0]}).")
+                         st.warning(f"Reduced number of topics to {actual_n_topics} (cannot exceed number of documents: {query_matrix_lda.shape[0]}).")
 
                     if actual_n_topics < 2:
-                         st.warning("Not enough documents/topics to perform LDA. Assigning 'Unclassified'.")
-                         merged_df["Query_Topic"] = "Unclassified"
+                        st.warning("Not enough documents/topics for LDA. Assigning 'Unclassified'.")
+                        merged_df["Query_Topic"] = "Unclassified"
+                        merged_df["Query_Topic_Label"] = -1
                     else:
-                         lda_queries_model = LatentDirichletAllocation(n_components=actual_n_topics, random_state=42, max_iter=15, learning_method='online') # Added max_iter, changed method
-                         lda_queries_model.fit(query_matrix_lda)
+                        # Original used default LDA settings + random_state
+                        lda_queries_model = LatentDirichletAllocation(n_components=actual_n_topics, random_state=42)
+                        lda_queries_model.fit(query_matrix_lda)
+                        query_topic_labels = lda_queries_model.transform(query_matrix_lda).argmax(axis=1)
+                        merged_df["Query_Topic_Label"] = query_topic_labels
 
-                         # Get topic distribution for the original list of non-NaN queries
-                         query_topic_labels_array = lda_queries_model.transform(query_matrix_lda).argmax(axis=1)
+                        # Generate descriptive labels using the original helper
+                        topic_labels_desc_queries = {}
+                        for topic_idx in range(actual_n_topics):
+                             topic_queries_lda = merged_df[merged_df["Query_Topic_Label"] == topic_idx]["Query"].tolist()
+                             topic_labels_desc_queries[topic_idx] = generate_topic_label(topic_queries_lda)
+                        # Apply descriptive labels
+                        merged_df["Query_Topic"] = merged_df["Query_Topic_Label"].apply(lambda x: topic_labels_desc_queries.get(x, f"Topic {x+1}"))
 
-                         # Create a mapping from query to topic label
-                         query_to_topic_label = dict(zip(queries, query_topic_labels_array))
+                        # Display keywords (Added for clarity, wasn't explicitly in original function output)
+                        st.write("Identified Query Topics (Top Keywords):")
+                        for topic_idx, topic_comp in enumerate(lda_queries_model.components_):
+                            top_keyword_indices = topic_comp.argsort()[-10:][::-1]
+                            topic_keywords = [feature_names_queries_lda[i] for i in top_keyword_indices]
+                            desc_label = topic_labels_desc_queries.get(topic_idx, f"Topic {topic_idx+1}")
+                            st.write(f"**{desc_label}:** {', '.join(topic_keywords)}")
 
-                         # Map topic labels back to the original merged_df, handling NaN queries
-                         merged_df["Query_Topic_Label"] = merged_df["Query"].map(query_to_topic_label) # This will be NaN for original NaN queries
+            except Exception as lda_error:
+                 st.error(f"Error during LDA Topic Modeling: {lda_error}")
+                 st.error(traceback.format_exc())
+                 st.warning("Assigning 'Unclassified' to all queries due to LDA error.")
+                 merged_df["Query_Topic"] = "Unclassified"
+                 merged_df["Query_Topic_Label"] = -1 # Assign dummy label
 
-                         # Generate descriptive labels for topics
-                         topic_labels_desc_queries = {}
-                         for topic_idx in range(actual_n_topics):
-                              # Get queries belonging to this topic *from the original list used for LDA*
-                              topic_queries_lda = [q for q, label in query_to_topic_label.items() if label == topic_idx]
-                              topic_labels_desc_queries[topic_idx] = generate_topic_label(topic_queries_lda)
+            progress_bar.progress(50)
 
-                         # Apply descriptive labels, assign 'Unclassified' to original NaN queries or failed mappings
-                         merged_df["Query_Topic"] = merged_df["Query_Topic_Label"].apply(
-                             lambda x: topic_labels_desc_queries.get(x, f"Topic {int(x)+1}") if pd.notna(x) else "Unclassified"
-                         )
-
-                         # Display top keywords for each identified topic
-                         st.write("Top keywords for identified query topics:")
-                         for topic_idx, topic_comp in enumerate(lda_queries_model.components_):
-                              top_keyword_indices = topic_comp.argsort()[-10:][::-1]
-                              topic_keywords = [feature_names_queries_lda[i] for i in top_keyword_indices]
-                              desc_label = topic_labels_desc_queries.get(topic_idx, f"Topic {topic_idx+1}")
-                              st.write(f"**{desc_label}:** {', '.join(topic_keywords)}")
-
-            except ValueError as ve:
-                 st.error(f"Error during LDA vectorization or fitting: {ve}. This might happen if vocabulary is empty after filtering. Try adjusting CountVectorizer settings. Assigning 'Unclassified'.")
-                 merged_df["Query_Topic"] = "Unclassified" # Assign placeholder
-            except Exception as e:
-                 st.error(f"An unexpected error occurred during topic modeling: {e}")
-                 merged_df["Query_Topic"] = "Unclassified" # Assign placeholder
-
-            progress_bar.progress(60)
-
-            # --- Display Merged Data Table with Topic Labels ---
-            st.markdown("#### Detailed Query Data with Topics")
-            st.markdown("Use the filters to explore queries within specific topics.")
-
-            # Add Topic filter - ensure 'Query_Topic' exists first
+            # --- Display Merged Data Table with Topic Labels (Original setup) ---
+            # Insert the topic column before other metrics
             if "Query_Topic" in merged_df.columns:
-                topic_filter_options = ["All"] + sorted(merged_df["Query_Topic"].unique().astype(str).tolist())
-                selected_topic_filter = st.selectbox("Filter by Topic:", options=topic_filter_options, key="topic_filter_merged")
-            else:
-                st.warning("Topic information is unavailable for filtering.")
-                selected_topic_filter = "All" # Default if topics failed
+                 merged_df_display_ready.insert(1, "Query_Topic", merged_df["Query_Topic"])
+            else: # Handle case where LDA failed
+                 merged_df_display_ready.insert(1, "Query_Topic", "Unclassified")
 
-            # Prepare the display dataframe again, inserting the topic column if it exists
-            merged_df_display_filtered = merged_df_display_base.copy()
-            if "Query_Topic" in merged_df.columns:
-                 merged_df_display_filtered.insert(1, "Query_Topic", merged_df["Query_Topic"]) # Insert Topic column after Query
-            else:
-                 merged_df_display_filtered.insert(1, "Query_Topic", "N/A") # Add placeholder if failed
-
-            # Apply filter
-            if selected_topic_filter != "All" and "Query_Topic" in merged_df_display_filtered.columns:
-                # Ensure comparison is robust (e.g., handle potential type mismatches if needed)
-                merged_df_display_filtered = merged_df_display_filtered[merged_df_display_filtered["Query_Topic"].astype(str) == selected_topic_filter]
+            st.markdown("#### Detailed Query Data by Topic")
+            # Use st.dataframe with formatting applied via .style
+            st.dataframe(merged_df_display_ready.style.format(format_dict_merged, na_rep="N/A"), use_container_width=True)
 
 
-            # Use st.data_editor for interactive sorting/filtering in UI
-            st.data_editor(
-                merged_df_display_filtered,
-                key="merged_data_editor",
-                use_container_width=True,
-                num_rows="dynamic", # Allow dynamic height
-                column_config={ # Apply formatting within data_editor if possible, or use style after
-                     col: st.column_config.NumberColumn(format=fmt.replace('%','%%')) # Need to escape % for NumberColumn format
-                     for col, fmt in format_dict_merged.items() if col in merged_df_display_filtered.columns
-                     # Add specific configs if needed, e.g., for links if URLs were included
-                }
-            )
-
-
-            # Step 5: Aggregated Metrics by Topic
             status_text.text("Aggregating metrics by topic...")
+            # --- Step 5: Aggregated Metrics by Topic (Original Logic) ---
             st.markdown("### Aggregated Metrics by Topic")
 
-            # Check if Query_Topic column exists before grouping
-            if "Query_Topic" not in merged_df.columns or merged_df["Query_Topic"].isnull().all():
-                 st.error("Topic modeling failed or produced no valid topics, cannot aggregate by topic.")
-                 return # Stop if no topics to aggregate by
+            # Check if Query_Topic exists and has valid values before grouping
+            if "Query_Topic" not in merged_df.columns or merged_df["Query_Topic"].nunique() == 0 or merged_df["Query_Topic"].isnull().all():
+                 st.error("Cannot aggregate metrics: Topic modeling failed or produced no valid topics.")
+                 return
 
+            # Define aggregation dictionary based on original approach (simple mean/sum)
             agg_dict = {}
-            # Use np.nanmean to ignore NaNs during aggregation for positions/CTR
-            if "Average Position_before" in merged_df: agg_dict["Average Position_before"] = lambda x: np.nanmean(x) if pd.notna(x).any() else np.nan
-            if "Average Position_after" in merged_df: agg_dict["Average Position_after"] = lambda x: np.nanmean(x) if pd.notna(x).any() else np.nan
-            # Sums for clicks/impressions
-            if "Clicks_before" in merged_df: agg_dict["Clicks_before"] = "sum"
-            if "Clicks_after" in merged_df: agg_dict["Clicks_after"] = "sum"
-            if "Impressions_before" in merged_df: agg_dict["Impressions_before"] = "sum"
-            if "Impressions_after" in merged_df: agg_dict["Impressions_after"] = "sum"
-            # Use parsed CTR for aggregation (mean)
-            if "CTR_parsed_before" in merged_df: agg_dict["CTR_parsed_before"] = lambda x: np.nanmean(x) if pd.notna(x).any() else np.nan
-            if "CTR_parsed_after" in merged_df: agg_dict["CTR_parsed_after"] = lambda x: np.nanmean(x) if pd.notna(x).any() else np.nan
+            if "Average Position_before" in merged_df.columns: agg_dict["Average Position_before"] = "mean"
+            if "Average Position_after" in merged_df.columns: agg_dict["Average Position_after"] = "mean"
+            if "Position_YOY" in merged_df.columns: agg_dict["Position_YOY"] = "mean" # Mean of the calculated differences
+
+            if "Clicks_before_num" in merged_df.columns: agg_dict["Clicks_before_num"] = "sum" # Sum numeric version
+            if "Clicks_after_num" in merged_df.columns: agg_dict["Clicks_after_num"] = "sum"
+            if "Clicks_YOY" in merged_df.columns: agg_dict["Clicks_YOY"] = "sum" # Sum of the calculated differences
+
+            if "Impressions_before_num" in merged_df.columns: agg_dict["Impressions_before_num"] = "sum"
+            if "Impressions_after_num" in merged_df.columns: agg_dict["Impressions_after_num"] = "sum"
+            if "Impressions_YOY" in merged_df.columns: agg_dict["Impressions_YOY"] = "sum"
+
+            # Aggregate the parsed CTR if available
+            if "CTR_parsed_before" in merged_df.columns: agg_dict["CTR_parsed_before"] = "mean"
+            if "CTR_parsed_after" in merged_df.columns: agg_dict["CTR_parsed_after"] = "mean"
+            if "CTR_YOY" in merged_df.columns: agg_dict["CTR_YOY"] = "mean"
 
 
-            # Group by topic, handle potential NaN topics if mapping failed for some rows
-            aggregated = merged_df.groupby("Query_Topic", dropna=False).agg(agg_dict).reset_index() # dropna=False keeps NaN group if any
-            aggregated.rename(columns={"Query_Topic": "Topic",
-                                      "CTR_parsed_before": "CTR_before", # Rename back for consistency
-                                      "CTR_parsed_after": "CTR_after"}, inplace=True)
+            # Group by the generated 'Query_Topic'
+            aggregated = merged_df.groupby("Query_Topic").agg(agg_dict).reset_index()
+
+            # Rename columns after aggregation for consistency and display
+            aggregated.rename(columns={
+                "Query_Topic": "Topic",
+                "Clicks_before_num": "Clicks_before", # Rename numeric back
+                "Clicks_after_num": "Clicks_after",
+                "Impressions_before_num": "Impressions_before",
+                "Impressions_after_num": "Impressions_after",
+                "CTR_parsed_before": "CTR_before", # Rename parsed back
+                "CTR_parsed_after": "CTR_after"
+            }, inplace=True)
 
 
-            # Recalculate YOY and YOY % changes on aggregated data
-            aggregated["Position_YOY"] = aggregated["Average Position_after"] - aggregated["Average Position_before"]
-            aggregated["Position_YOY_pct"] = aggregated.apply(lambda row: calculate_pct_change(row["Average Position_after"], row["Average Position_before"]), axis=1)
+            # --- Calculate aggregated YOY percentage changes (Original style) ---
+            # Apply calculation after aggregation
+            aggregated["Position_YOY_pct"] = aggregated.apply(
+                lambda row: (row["Position_YOY"] / row["Average Position_before"] * 100)
+                if pd.notna(row.get("Position_YOY")) and pd.notna(row.get("Average Position_before")) and row.get("Average Position_before") != 0
+                else np.nan, axis=1
+            )
+            if "Clicks_before" in aggregated.columns and "Clicks_YOY" in aggregated.columns:
+                aggregated["Clicks_YOY_pct"] = aggregated.apply(
+                    lambda row: (row["Clicks_YOY"] / row["Clicks_before"] * 100)
+                    if pd.notna(row.get("Clicks_YOY")) and pd.notna(row.get("Clicks_before")) and row.get("Clicks_before") != 0
+                    else np.nan, axis=1
+                )
+            else: aggregated["Clicks_YOY_pct"] = np.nan
 
-            if "Clicks_before" in aggregated.columns:
-                aggregated["Clicks_YOY"] = aggregated["Clicks_after"] - aggregated["Clicks_before"]
-                aggregated["Clicks_YOY_pct"] = aggregated.apply(lambda row: calculate_pct_change(row["Clicks_after"], row["Clicks_before"]), axis=1)
-            if "Impressions_before" in aggregated.columns:
-                aggregated["Impressions_YOY"] = aggregated["Impressions_after"] - aggregated["Impressions_before"]
-                aggregated["Impressions_YOY_pct"] = aggregated.apply(lambda row: calculate_pct_change(row["Impressions_after"], row["Impressions_before"]), axis=1)
-            if "CTR_before" in aggregated.columns:
-                aggregated["CTR_YOY"] = aggregated["CTR_after"] - aggregated["CTR_before"] # Change in percentage points
-                aggregated["CTR_YOY_pct"] = aggregated.apply(lambda row: calculate_pct_change(row["CTR_after"], row["CTR_before"]), axis=1) # Relative % change
+            if "Impressions_before" in aggregated.columns and "Impressions_YOY" in aggregated.columns:
+                aggregated["Impressions_YOY_pct"] = aggregated.apply(
+                    lambda row: (row["Impressions_YOY"] / row["Impressions_before"] * 100)
+                    if pd.notna(row.get("Impressions_YOY")) and pd.notna(row.get("Impressions_before")) and row.get("Impressions_before") != 0
+                    else np.nan, axis=1
+                )
+            else: aggregated["Impressions_YOY_pct"] = np.nan
+
+            # Use the aggregated CTR columns (already means of parsed values)
+            if "CTR_before" in aggregated.columns and "CTR_YOY" in aggregated.columns:
+                aggregated["CTR_YOY_pct"] = aggregated.apply(
+                    lambda row: (row["CTR_YOY"] / row["CTR_before"] * 100)
+                    if pd.notna(row.get("CTR_YOY")) and pd.notna(row.get("CTR_before")) and row.get("CTR_before") != 0
+                    else np.nan, axis=1
+                )
+            else: aggregated["CTR_YOY_pct"] = np.nan
 
             progress_bar.progress(75)
 
-            # Reorder columns for the aggregated table
-            agg_display_order = ["Topic"]
-            if "Average Position_before" in aggregated.columns: agg_display_order.extend(["Average Position_before", "Average Position_after", "Position_YOY", "Position_YOY_pct"])
-            if "Clicks_before" in aggregated.columns: agg_display_order.extend(["Clicks_before", "Clicks_after", "Clicks_YOY", "Clicks_YOY_pct"])
-            if "Impressions_before" in aggregated.columns: agg_display_order.extend(["Impressions_before", "Impressions_after", "Impressions_YOY", "Impressions_YOY_pct"])
-            if "CTR_before" in aggregated.columns:
-                # Display CTRs as percentages
-                aggregated["CTR %_before"] = aggregated["CTR_before"] * 100
-                aggregated["CTR %_after"] = aggregated["CTR_after"] * 100
-                aggregated["CTR %_YOY"] = aggregated["CTR_YOY"] * 100 # Display change in pp
-                aggregated["CTR %_YOY_pct"] = aggregated["CTR_YOY_pct"] # Relative change %
-                agg_display_order.extend(["CTR %_before", "CTR %_after", "CTR %_YOY", "CTR %_YOY_pct"])
 
-            # Filter agg_display_order to only include columns actually present
-            agg_display_order = [col for col in agg_display_order if col in aggregated.columns]
-            aggregated_display = aggregated[agg_display_order].copy() # Use .copy()
+            # --- Reorder columns for aggregated display (Original structure) ---
+            new_order = ["Topic"]
+            if "Average Position_before" in aggregated.columns: new_order.extend(["Average Position_before", "Average Position_after", "Position_YOY", "Position_YOY_pct"])
+            if "Clicks_before" in aggregated.columns: new_order.extend(["Clicks_before", "Clicks_after", "Clicks_YOY", "Clicks_YOY_pct"])
+            if "Impressions_before" in aggregated.columns: new_order.extend(["Impressions_before", "Impressions_after", "Impressions_YOY", "Impressions_YOY_pct"])
+            if "CTR_before" in aggregated.columns: new_order.extend(["CTR_before", "CTR_after", "CTR_YOY", "CTR_YOY_pct"])
 
-            # --- Define formatting for aggregated metrics display ---
+            # Select only existing columns for the final aggregated display
+            final_agg_order = [col for col in new_order if col in aggregated.columns]
+            aggregated_display_final = aggregated[final_agg_order].copy()
+
+
+            # --- Define formatting for aggregated display (Original Style) ---
             format_dict_agg = {}
-            if "Average Position_before" in aggregated_display.columns: format_dict_agg["Average Position_before"] = float_format
-            if "Average Position_after" in aggregated_display.columns: format_dict_agg["Average Position_after"] = float_format
-            if "Position_YOY" in aggregated_display.columns: format_dict_agg["Position_YOY"] = float_format
-            if "Position_YOY_pct" in aggregated_display.columns: format_dict_agg["Position_YOY_pct"] = pct_format
-            if "Clicks_before" in aggregated_display.columns: format_dict_agg["Clicks_before"] = int_format
-            if "Clicks_after" in aggregated_display.columns: format_dict_agg["Clicks_after"] = int_format
-            if "Clicks_YOY" in aggregated_display.columns: format_dict_agg["Clicks_YOY"] = int_format
-            if "Clicks_YOY_pct" in aggregated_display.columns: format_dict_agg["Clicks_YOY_pct"] = pct_format
-            if "Impressions_before" in aggregated_display.columns: format_dict_agg["Impressions_before"] = int_format
-            if "Impressions_after" in aggregated_display.columns: format_dict_agg["Impressions_after"] = int_format
-            if "Impressions_YOY" in aggregated_display.columns: format_dict_agg["Impressions_YOY"] = int_format
-            if "Impressions_YOY_pct" in aggregated_display.columns: format_dict_agg["Impressions_YOY_pct"] = pct_format
-            if "CTR %_before" in aggregated_display.columns: format_dict_agg["CTR %_before"] = pct_format
-            if "CTR %_after" in aggregated_display.columns: format_dict_agg["CTR %_after"] = pct_format
-            if "CTR %_YOY" in aggregated_display.columns: format_dict_agg["CTR %_YOY"] = pp_format # Show pp change
-            if "CTR %_YOY_pct" in aggregated_display.columns: format_dict_agg["CTR %_YOY_pct"] = pct_format # Show relative change
+            if "Average Position_before" in aggregated_display_final.columns: format_dict_agg["Average Position_before"] = float_format
+            if "Average Position_after" in aggregated_display_final.columns: format_dict_agg["Average Position_after"] = float_format
+            if "Position_YOY" in aggregated_display_final.columns: format_dict_agg["Position_YOY"] = float_format
+            if "Clicks_before" in aggregated_display_final.columns: format_dict_agg["Clicks_before"] = int_format
+            if "Clicks_after" in aggregated_display_final.columns: format_dict_agg["Clicks_after"] = int_format
+            if "Clicks_YOY" in aggregated_display_final.columns: format_dict_agg["Clicks_YOY"] = int_format
+            if "Impressions_before" in aggregated_display_final.columns: format_dict_agg["Impressions_before"] = int_format
+            if "Impressions_after" in aggregated_display_final.columns: format_dict_agg["Impressions_after"] = int_format
+            if "Impressions_YOY" in aggregated_display_final.columns: format_dict_agg["Impressions_YOY"] = int_format
+            # Use pct_format for CTR values as original stored them as percentages (e.g., 5.5)
+            if "CTR_before" in aggregated_display_final.columns: format_dict_agg["CTR_before"] = pct_format
+            if "CTR_after" in aggregated_display_final.columns: format_dict_agg["CTR_after"] = pct_format
+            if "CTR_YOY" in aggregated_display_final.columns: format_dict_agg["CTR_YOY"] = "{:,.2f}pp" # Show change in pp
 
-            # Use st.data_editor for the aggregated table too
-            st.data_editor(
-                aggregated_display,
-                key="aggregated_data_editor",
-                use_container_width=True,
-                num_rows="dynamic",
-                column_config={
-                     col: st.column_config.NumberColumn(format=fmt.replace('%','%%'))
-                     for col, fmt in format_dict_agg.items() if col in aggregated_display.columns
-                }
-            )
+            # Percentage change formatting
+            if "Position_YOY_pct" in aggregated_display_final.columns: format_dict_agg["Position_YOY_pct"] = pct_format
+            if "Clicks_YOY_pct" in aggregated_display_final.columns: format_dict_agg["Clicks_YOY_pct"] = pct_format
+            if "Impressions_YOY_pct" in aggregated_display_final.columns: format_dict_agg["Impressions_YOY_pct"] = pct_format
+            if "CTR_YOY_pct" in aggregated_display_final.columns: format_dict_agg["CTR_YOY_pct"] = pct_format
+
+
+            # Original code had an input for display count
+            display_count = st.number_input(
+                "Number of aggregated topics to display:",
+                min_value=1,
+                # Set default value, ensure it doesn't exceed max rows
+                value=min(10, aggregated_display_final.shape[0]) if not aggregated_display_final.empty else 1,
+                max_value=aggregated_display_final.shape[0] if not aggregated_display_final.empty else 1,
+                step=1
+                )
+            # Display using st.dataframe with formatting
+            st.dataframe(aggregated_display_final.head(display_count).style.format(format_dict_agg, na_rep="N/A"), use_container_width=True)
             progress_bar.progress(80)
 
 
-            # Step 6: Visualization - Grouped Bar Chart of YOY % Change by Topic for Each Metric
-            status_text.text("Generating visualizations...")
-            st.markdown("### YoY % Change by Topic")
+            status_text.text("Generating visualization...")
+            # --- Step 6: Visualization (Original logic) ---
+            st.markdown("### YOY % Change by Topic for Each Metric")
 
+            # Allow user to disable specific topics from the chart (Refinement kept)
+            available_topics = aggregated_display_final["Topic"].unique().tolist()
+            # Filter out potential NaN topics if LDA failed partially
+            available_topics = [t for t in available_topics if pd.notna(t)]
+            selected_topics = st.multiselect(
+                "Select topics to display on the chart:",
+                options=available_topics,
+                default=available_topics # Default to all valid topics
+            )
+
+            # Prepare data for plotting using aggregated YOY % columns
             vis_data = []
-             # Use the aggregated dataframe which has the calculated YOY % changes
-            for idx, row in aggregated_display.iterrows(): # Iterate over the display DF
+            for idx, row in aggregated_display_final.iterrows():
                 topic = row["Topic"]
-                # Use the YOY % columns calculated on aggregated data
-                # Check existence and ensure value is not NaN before adding
+                # Ensure topic is valid and selected before adding data
+                if pd.isna(topic) or topic not in selected_topics:
+                    continue
+
+                # Add data for plotting if YOY % column exists and value is not NaN
                 if "Position_YOY_pct" in row and pd.notna(row["Position_YOY_pct"]):
-                    vis_data.append({"Topic": topic, "Metric": "Avg. Position % Change", "Value": row["Position_YOY_pct"]})
+                    vis_data.append({"Topic": topic, "Metric": "Avg. Position", "YOY % Change": row["Position_YOY_pct"]})
                 if "Clicks_YOY_pct" in row and pd.notna(row["Clicks_YOY_pct"]):
-                    vis_data.append({"Topic": topic, "Metric": "Clicks % Change", "Value": row["Clicks_YOY_pct"]})
+                    vis_data.append({"Topic": topic, "Metric": "Clicks", "YOY % Change": row["Clicks_YOY_pct"]})
                 if "Impressions_YOY_pct" in row and pd.notna(row["Impressions_YOY_pct"]):
-                    vis_data.append({"Topic": topic, "Metric": "Impressions % Change", "Value": row["Impressions_YOY_pct"]})
-                # Use the correct column name 'CTR %_YOY_pct'
-                if "CTR %_YOY_pct" in row and pd.notna(row["CTR %_YOY_pct"]):
-                     vis_data.append({"Topic": topic, "Metric": "CTR % Change (Relative)", "Value": row["CTR %_YOY_pct"]})
+                    vis_data.append({"Topic": topic, "Metric": "Impressions", "YOY % Change": row["Impressions_YOY_pct"]})
+                if "CTR_YOY_pct" in row and pd.notna(row["CTR_YOY_pct"]):
+                    vis_data.append({"Topic": topic, "Metric": "CTR", "YOY % Change": row["CTR_YOY_pct"]})
 
             if not vis_data:
-                st.warning("No data available for visualization. Check if YoY % changes could be calculated for any topics.")
+                 st.warning("No data available to plot YoY % changes for the selected topics.")
             else:
                 vis_df = pd.DataFrame(vis_data)
-
-                # Allow user to select which metrics to plot
-                available_metrics = sorted(vis_df["Metric"].unique().tolist())
-                selected_metrics = st.multiselect("Select metrics to display on chart:", options=available_metrics, default=available_metrics)
-
-                if selected_metrics:
-                     vis_df_filtered = vis_df[vis_df["Metric"].isin(selected_metrics)]
-
-                     # Determine plot type based on number of topics
-                     num_unique_topics = len(aggregated_display["Topic"].unique())
-                     chart_height = max(450, num_unique_topics * 35) # Dynamic height
-
-                     try:
-                         fig = px.bar(vis_df_filtered,
-                                      y="Topic", # Horizontal bar chart often better for many categories
-                                      x="Value",
-                                      color="Metric",
-                                      barmode="group",
-                                      orientation='h', # Horizontal
-                                      title="YoY % Change by Topic for Selected Metrics",
-                                      labels={"Value": "YoY Change (%)", "Topic": "Topic"},
-                                      height=chart_height,
-                                      text_auto='.1f' # Display values on bars
-                                     )
-                         fig.update_layout(
-                             yaxis={'categoryorder':'total ascending'}, # Sort topics by value summed across metrics
-                             legend_title_text='Metric',
-                             xaxis_title="YoY Change (%)",
-                             yaxis_title="Topic"
-                         )
-                         fig.update_traces(textposition='outside')
-                         st.plotly_chart(fig, use_container_width=True)
-                     except Exception as plot_err:
-                          st.error(f"Failed to generate plot: {plot_err}")
-
-                else:
-                     st.info("Select at least one metric to display the chart.")
+                try:
+                    # Original plot (vertical bars)
+                    fig = px.bar(vis_df, x="Topic", y="YOY % Change", color="Metric", barmode="group",
+                                 title="YOY % Change by Topic for Each Metric",
+                                 labels={"YOY % Change": "YoY Change (%)", "Topic": "Topic"})
+                    # Optional: Adjust height dynamically based on number of topics/metrics
+                    num_bars = len(vis_df['Metric'].unique()) * len(selected_topics)
+                    height = max(400, num_bars * 15) # Adjust multiplier as needed
+                    fig.update_layout(height=height)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error generating plot: {e}")
+                    st.error(traceback.format_exc())
 
             progress_bar.progress(100)
             status_text.text("Analysis Complete!")
 
+        # --- Exception Handling (Original likely had less specific handling) ---
         except FileNotFoundError:
             st.error("Uploaded file not found. Please re-upload.")
+            status_text.text("Error: File not found.")
         except pd.errors.EmptyDataError:
-            st.error("One of the uploaded CSV files is empty or contains no data.")
+            st.error("One or both uploaded CSV files are empty.")
+            status_text.text("Error: Empty CSV file.")
         except KeyError as ke:
-             st.error(f"A required column is missing or named incorrectly: {ke}. Please ensure 'Top queries' and 'Position' are present.")
+             st.error(f"Column missing or named incorrectly: {ke}. Required: 'Top queries', 'Position'.")
+             status_text.text(f"Error: Missing column {ke}.")
+             st.error(traceback.format_exc())
         except Exception as e:
             st.error(f"An unexpected error occurred during analysis: {e}")
-            # Optional: Add more detailed error logging here if needed
-            import traceback
-            st.error(traceback.format_exc()) # Show full traceback for debugging
+            st.error(traceback.format_exc()) # Show full traceback
+            status_text.text("Error during analysis.")
         finally:
-             # Ensure progress bar completes and status text is cleared or updated
-             progress_bar.progress(100)
-             # status_text.text("Analysis Finished.") # Or clear it: status_text.empty()
+            # Ensure progress bar completes
+            if 'progress_bar' in locals():
+                 progress_bar.progress(100)
+
 
     else:
         st.info("Please upload both GSC CSV files ('Before' and 'After' periods) to start the analysis.")
+
 
 # ------------------------------------
 # Main Streamlit App Execution
 # ------------------------------------
 def main():
     st.set_page_config(
-        page_title="GSC Data Analysis",
+        page_title="GSC Data Analysis (Restored)", # Updated title
         layout="wide"
     )
-    # Optional: Hide default Streamlit elements
-    # hide_streamlit_elements = """<style>...</style>"""
-    # st.markdown(hide_streamlit_elements, unsafe_allow_html=True)
-
-    # Directly call the only tool function
+    # Directly call the GSC tool function
     google_search_console_analysis_page()
 
-    # Optional: Add a footer
+    # Optional: Footer
     st.markdown("---")
-    st.markdown("GSC Analysis Tool | Powered by Streamlit")
+    st.markdown("GSC Analysis Tool")
 
 if __name__ == "__main__":
     main()
