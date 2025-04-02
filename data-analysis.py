@@ -70,10 +70,13 @@ def google_search_console_analysis_page():
     st.header("Google Search Console Data Analysis")
     st.markdown(
         """
-        Compare GSC query data from two periods to identify key topic performance changes.
-        Upload 'Before' and 'After' CSVs. The tool performs topic modeling (LDA), calculates YoY changes for common queries, aggregates metrics by topic, and visualizes the results.
-        *Requires 'Top queries' and 'Position' columns. 'Clicks', 'Impressions', 'CTR' recommended.*
-        *Note: This version compares only queries present in **both** periods (`inner` merge).*
+        The goal is to identify key topics that are contributing to your SEO performance.
+        This tool lets you compare GSC query data from two different time periods. I recommend limiting to the top 1,000 queries as this can take awhile to process.
+        Upload CSV files (one for the 'Before' period and one for the 'After' period), and the tool will:
+        - Classify queries into topics with descriptive labels using LDA.
+        - Display the original merged data table with topic labels.
+        - Aggregate metrics by topic, with an option to display more rows.
+        - Visualize the YOY % change by topic for each metric.
         """
     )
 
