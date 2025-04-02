@@ -1,8 +1,10 @@
 import streamlit as st
 
 # --- Page Config Must Be First Streamlit Command ---
+# Ensure this is the absolute first Streamlit command executed.
 st.set_page_config(page_title="GSC Data Analysis", layout="wide")
 
+# --- Other Imports ---
 import pandas as pd
 import numpy as np
 import collections
@@ -24,40 +26,45 @@ import re
 # ------------------------------------
 
 # --- NLTK Setup ---
-@st.cache_data # Cache the download check result
+# Define the function, but DO NOT call it here.
+@st.cache_data
 def ensure_nltk_data():
     try:
         nltk.data.find('corpora/stopwords')
     except LookupError:
-        # Use st.info cautiously before set_page_config if called early
-        # print("Downloading NLTK stopwords...") # Use print for safer logging before config
+        print("Downloading NLTK stopwords...") # Use print, st calls might fail early
         nltk.download('stopwords', quiet=True)
     try:
         nltk.data.find('tokenizers/punkt')
     except LookupError:
-        # print("Downloading NLTK punkt tokenizer...")
+        print("Downloading NLTK punkt tokenizer...")
         nltk.download('punkt', quiet=True)
-# Call the function early, but after set_page_config might be safer if it causes issues
-# Let's call it here for now. If issues persist, move it inside main().
-ensure_nltk_data()
 
-# Load stopwords - Error handling added
-try:
-    nltk_stop_words = set(stopwords.words('english'))
-    nltk_stop_words.update(['a', 'an', 'the', 'of', 'in', 'on', 'at', 'for', 'to', 'is', 'and', 'com', 'www'])
-except Exception as e:
-    st.error(f"Error loading NLTK stopwords: {e}. Using a basic fallback list.")
-    nltk_stop_words = set(['and', 'the', 'to', 'of', 'a', 'in', 'is', 'it', 'you', 'that'])
+# Load stopwords - Needs ensure_nltk_data to have run first. Error handling added.
+# This needs to be done carefully. Let's load it inside the main function too.
+# Define a function to load stopwords safely after checking NLTK data.
+@st.cache_data
+def load_stopwords_safe():
+    ensure_nltk_data() # Ensure data is present before loading
+    try:
+        sw = set(stopwords.words('english'))
+        sw.update(['a', 'an', 'the', 'of', 'in', 'on', 'at', 'for', 'to', 'is', 'and', 'com', 'www'])
+        return sw
+    except Exception as e:
+        st.error(f"Error loading NLTK stopwords: {e}. Using a basic fallback list.")
+        return set(['and', 'the', 'to', 'of', 'a', 'in', 'is', 'it', 'you', 'that']) # Fallback
 
+# nltk_stop_words = load_stopwords_safe() # DO NOT load globally
 
 # --- Topic Label Generation (Revised for Bi-grams) ---
-def generate_topic_label(queries_in_topic):
+def generate_topic_label(queries_in_topic, stop_words_set): # Pass stopwords in
     bigram_list = []
     for query in queries_in_topic:
         if isinstance(query, str):
              tokens = [word for word in re.findall(r'\b\w+\b', query.lower()) if len(word) > 1]
              query_bigrams = list(nltk.ngrams(tokens, 2))
-             filtered_bigrams = [bg for bg in query_bigrams if bg[0] not in nltk_stop_words and bg[1] not in nltk_stop_words]
+             # Use the passed-in stopwords set
+             filtered_bigrams = [bg for bg in query_bigrams if bg[0] not in stop_words_set and bg[1] not in stop_words_set]
              bigram_list.extend([" ".join(bg) for bg in filtered_bigrams])
     if bigram_list:
         freq = collections.Counter(bigram_list)
@@ -67,49 +74,39 @@ def generate_topic_label(queries_in_topic):
     elif queries_in_topic:
          words = []
          for query in queries_in_topic:
-             if isinstance(query, str): words.extend([w for w in re.findall(r'\b\w+\b', query.lower()) if w not in nltk_stop_words and len(w)>1])
+             if isinstance(query, str): words.extend([w for w in re.findall(r'\b\w+\b', query.lower()) if w not in stop_words_set and len(w)>1])
          if words: return collections.Counter(words).most_common(1)[0][0].capitalize()
          else: return "Unnamed Topic"
     else: return "Unnamed Topic"
 
 # --- Intent Classification Setup (Zero-Shot) ---
-@st.cache_resource # Cache the pipeline object
+@st.cache_resource
 def load_intent_classifier():
-    # --- MOVED IMPORTS HERE ---
     from transformers import pipeline
     import torch
-    # --------------------------
     model_name = "facebook/bart-large-mnli"
-    st.info(f"Loading Zero-Shot classification model ({model_name})...")
+    # Use st.info only if needed for user feedback, print is safer for logs
+    print(f"Attempting to load Zero-Shot model ({model_name})...")
     try:
-        # Explicitly check CUDA availability
         device_num = 0 if torch.cuda.is_available() else -1
-        if device_num == 0:
-             print(f"Torch CUDA available. Using device: {torch.cuda.get_device_name(device_num)}")
-        else:
-             print("Torch CUDA not available. Using CPU.")
-
+        print(f"Using device: {'GPU 0' if device_num == 0 else 'CPU'}")
         classifier = pipeline("zero-shot-classification", model=model_name, device=device_num)
-        st.success("Intent classification model loaded.")
+        print("Intent classification model loaded successfully.")
+        # st.success("Intent classification model loaded.") # Show success in UI if desired
         return classifier
     except Exception as e:
-        st.error(f"Error loading intent classification model: {e}")
+        st.error(f"Fatal Error loading intent classification model: {e}")
         st.error(traceback.format_exc())
-        st.warning("Intent classification will not be available.")
         return None
 
 # Function to classify intent using the zero-shot pipeline
 def classify_intent_zero_shot(query, classifier, candidate_labels):
-    if not classifier or not isinstance(query, str) or not query.strip():
-        return "Unknown"
+    if not classifier or not isinstance(query, str) or not query.strip(): return "Unknown"
     try:
         result = classifier(query, candidate_labels, multi_label=False)
         return result['labels'][0]
-    except Exception as e:
-        # print(f"Error classifying intent for query '{query}': {e}") # Use print for safer logging in background potentially
-        return "Unknown"
+    except Exception as e: return "Unknown"
 
-# Define the candidate labels for zero-shot classification
 INTENT_LABELS = ["Informational", "Navigational", "Commercial", "Transactional"]
 
 # --- Other Helper Functions ---
@@ -128,12 +125,15 @@ def calculate_pct_change(val_after, val_before):
 # GSC Analyzer Tool Function
 # ------------------------------------
 def google_search_console_analysis_page():
-    st.header("Google Search Console Data Analysis")
-    st.markdown( /* ... Description ... */ ) # Keep description
 
-    # Load the intent classifier *inside* the main function
-    # This ensures it happens after set_page_config
+    # --- Call NLTK setup and load resources *INSIDE* the main function ---
+    ensure_nltk_data()
+    nltk_stop_words = load_stopwords_safe()
     intent_classifier = load_intent_classifier()
+    # --------------------------------------------------------------------
+
+    st.header("Google Search Console Data Analysis")
+    st.markdown( """ /* ... Description ... */ """ )
 
     st.markdown("### Upload GSC Data")
     uploaded_file_before = st.file_uploader("Upload GSC CSV for 'Before' period", type=["csv"], key="gsc_before")
@@ -203,11 +203,12 @@ def google_search_console_analysis_page():
             if ctr_cols_present: merged_df["CTR_YOY_pct"] = merged_df.apply(lambda row: calculate_pct_change(row["CTR_parsed_after"], row["CTR_parsed_before"]), axis=1)
             else: merged_df["CTR_YOY_pct"] = np.nan
 
+
             # --- Intent Classification ---
             status_text.text("Classifying search intent (Zero-Shot)...")
             if intent_classifier:
                  merged_df['Intent'] = merged_df['Query'].apply(lambda q: classify_intent_zero_shot(q, intent_classifier, INTENT_LABELS))
-            else: merged_df['Intent'] = "Unknown"
+            else: merged_df['Intent'] = "Unknown"; st.warning("Intent classification skipped - model not loaded.")
             # --- Display Intent Distribution ---
             st.markdown("### Search Intent Classification")
             st.markdown("Distribution of classified intents (Zero-Shot Model):")
@@ -218,13 +219,14 @@ def google_search_console_analysis_page():
                  st.write("Sample Queries Classified as 'Unknown':"); st.dataframe(unknown_queries[['Query']].sample(min(5, unknown_queries.shape[0]), random_state=1), hide_index=True)
             progress_bar.progress(45)
 
+
             # --- Topic Modeling ---
             status_text.text("Performing bi-gram topic modeling (LDA)...")
-            # ... (LDA code remains the same - uses bi-grams) ...
             st.markdown("### Topic Classification (Bi-grams)")
             n_topics_gsc_lda = st.slider("Select number of topics:", min_value=2, max_value=15, value=5, key="lda_topics_gsc")
             queries = merged_df["Query"].astype(str).tolist(); merged_df["Query_Topic"] = "Unclassified"; merged_df["Query_Topic_Label"] = -1
             try:
+                # Use scikit-learn's default stop words list here for consistency with common practice
                 vectorizer_queries_lda = CountVectorizer(stop_words='english', ngram_range=(2, 2), min_df=2, token_pattern=r'\b[a-zA-Z]{2,}\b')
                 query_matrix_lda = vectorizer_queries_lda.fit_transform(queries); feature_names_queries_lda = vectorizer_queries_lda.get_feature_names_out()
                 if query_matrix_lda.shape[1] > 0:
@@ -236,7 +238,8 @@ def google_search_console_analysis_page():
                         merged_df["Query_Topic_Label"] = query_topic_labels; topic_labels_desc_queries = {}
                         for topic_idx in range(actual_n_topics):
                              topic_queries_lda = merged_df[merged_df["Query_Topic_Label"] == topic_idx]["Query"].tolist()
-                             topic_labels_desc_queries[topic_idx] = generate_topic_label(topic_queries_lda)
+                             # Pass the correct stopwords list to the label generator
+                             topic_labels_desc_queries[topic_idx] = generate_topic_label(topic_queries_lda, nltk_stop_words)
                         merged_df["Query_Topic"] = merged_df["Query_Topic_Label"].apply(lambda x: topic_labels_desc_queries.get(x, f"Topic {x+1}"))
                         st.write("Identified Query Topics (Top Bi-grams):")
                         for topic_idx, topic_comp in enumerate(lda_queries_model.components_):
@@ -249,8 +252,8 @@ def google_search_console_analysis_page():
             progress_bar.progress(55)
 
             # --- Display Merged Data Table ---
-            st.markdown("### Detailed Query Data by Topic & Intent")
             # ... (Display table code remains the same) ...
+            st.markdown("### Detailed Query Data by Topic & Intent")
             base_cols = ["Query", "Intent", "Query_Topic", "Average Position_before", "Average Position_after", "Position_YOY", "Position_YOY_pct"]
             if click_cols_present: base_cols += ["Clicks_before", "Clicks_after", "Clicks_YOY", "Clicks_YOY_pct"]
             if imp_cols_present: base_cols += ["Impressions_before", "Impressions_after", "Impressions_YOY", "Impressions_YOY_pct"]
@@ -283,14 +286,13 @@ def google_search_console_analysis_page():
             if "CTR_YOY_pct" in merged_df_display_ready.columns: format_dict_merged["CTR_YOY_pct"] = pct_format
             st.dataframe(merged_df_display_ready.style.format(format_dict_merged, na_rep="N/A"), use_container_width=True)
 
+
             # --- Aggregation by Topic ---
-            # ... (Aggregation by Topic code remains the same) ...
-            status_text.text("Aggregating metrics by topic...")
-            st.markdown("### Aggregated Metrics by Topic")
+            # ... (Remains the same) ...
+            status_text.text("Aggregating metrics by topic..."); st.markdown("### Aggregated Metrics by Topic")
             aggregated_display_final = pd.DataFrame()
             if "Query_Topic" in merged_df.columns and merged_df["Query_Topic"].nunique() > 0 and not merged_df["Query_Topic"].isnull().all():
-                # ... (aggregation logic) ...
-                agg_dict = {}
+                agg_dict = {} # Define aggs...
                 if "Average Position_before" in merged_df.columns: agg_dict["Average Position_before"] = "mean"
                 if "Average Position_after" in merged_df.columns: agg_dict["Average Position_after"] = "mean"
                 if "Position_YOY" in merged_df.columns: agg_dict["Position_YOY"] = "mean"
@@ -303,6 +305,7 @@ def google_search_console_analysis_page():
                 if "CTR_parsed_before" in merged_df.columns: agg_dict["CTR_parsed_before"] = "mean"
                 if "CTR_parsed_after" in merged_df.columns: agg_dict["CTR_parsed_after"] = "mean"
                 if "CTR_YOY" in merged_df.columns: agg_dict["CTR_YOY"] = "mean"
+
                 aggregated = merged_df.groupby("Query_Topic").agg(agg_dict).reset_index()
                 aggregated.rename(columns={"Query_Topic": "Topic", "Clicks_before_num": "Clicks_before", "Clicks_after_num": "Clicks_after", "Impressions_before_num": "Impressions_before", "Impressions_after_num": "Impressions_after", "CTR_parsed_before": "CTR_before", "CTR_parsed_after": "CTR_after"}, inplace=True)
                 aggregated["Position_YOY_pct"] = aggregated.apply(lambda row: calculate_pct_change(row.get("Average Position_after"), row.get("Average Position_before")), axis=1)
@@ -344,7 +347,7 @@ def google_search_console_analysis_page():
             progress_bar.progress(80)
 
             # --- Aggregation by Intent ---
-            # ... (Aggregation by Intent code remains the same) ...
+            # ... (Remains the same) ...
             status_text.text("Aggregating metrics by search intent..."); st.markdown("### Aggregated Metrics by Search Intent")
             can_agg_intent = 'Intent' in merged_df.columns and click_cols_present and imp_cols_present; intent_agg_display = pd.DataFrame()
             if not can_agg_intent: st.warning("Cannot aggregate by intent: Clicks/Impressions cols missing or Intent classification failed.")
@@ -358,7 +361,7 @@ def google_search_console_analysis_page():
             progress_bar.progress(85)
 
             # --- Visualizations ---
-            # ... (Visualization section remains largely the same, plotting what's available) ...
+            # ... (Remains the same, uses aggregated_display_final and intent_agg_display) ...
             status_text.text("Generating visualizations..."); st.markdown("---"); st.markdown("### Visualizations")
             # Topic Visualizations
             st.markdown("#### Performance by Topic")
@@ -366,7 +369,7 @@ def google_search_console_analysis_page():
                 available_topics = aggregated_display_final["Topic"].unique().tolist(); available_topics = [t for t in available_topics if pd.notna(t)]
                 selected_topics = st.multiselect("Select topics:", options=available_topics, default=available_topics, key="topic_viz_select")
                 aggregated_filtered = aggregated_display_final[aggregated_display_final['Topic'].isin(selected_topics)]
-                st.markdown("##### Topic YoY % Change") # Plot YoY %
+                st.markdown("##### Topic YoY % Change")
                 vis_data_pct = []; # ... Collect data ...
                 for idx, row in aggregated_filtered.iterrows():
                     topic = row["Topic"]
@@ -379,12 +382,12 @@ def google_search_console_analysis_page():
                     try: fig_pct = px.bar(vis_df_pct, x="Topic", y="YOY % Change", color="Metric", barmode="group", title="YoY % Change by Topic", labels={"YOY % Change": "YoY Change (%)"}, text_auto='.1f'); fig_pct.update_traces(textposition='outside'); st.plotly_chart(fig_pct, use_container_width=True)
                     except Exception as e: st.error(f"Error plotting Topic YoY %: {e}")
                 else: st.warning("No YoY % data for selected topics.")
-                st.markdown("##### Topic Raw Clicks (Before vs After)") # Plot Clicks
+                st.markdown("##### Topic Raw Clicks (Before vs After)")
                 if "Clicks_before" in aggregated_filtered.columns and "Clicks_after" in aggregated_filtered.columns: # Plot if cols exist...
                      try: clicks_df = aggregated_filtered[["Topic", "Clicks_before", "Clicks_after"]]; clicks_melted = clicks_df.melt(id_vars="Topic", value_vars=["Clicks_before", "Clicks_after"], var_name="Period", value_name="Clicks"); clicks_melted["Period"] = clicks_melted["Period"].str.replace("Clicks_", ""); fig_clicks = px.bar(clicks_melted, x="Topic", y="Clicks", color="Period", barmode="group", title="Total Clicks per Topic", labels={"Clicks": "Total Clicks"}, text_auto=True); fig_clicks.update_traces(textposition='outside'); st.plotly_chart(fig_clicks, use_container_width=True)
                      except Exception as e: st.error(f"Error plotting Topic Clicks: {e}")
                 else: st.warning("Cannot plot Topic Raw Clicks.")
-                st.markdown("##### Topic Raw Impressions (Before vs After)") # Plot Impressions
+                st.markdown("##### Topic Raw Impressions (Before vs After)")
                 if "Impressions_before" in aggregated_filtered.columns and "Impressions_after" in aggregated_filtered.columns: # Plot if cols exist...
                      try: impressions_df = aggregated_filtered[["Topic", "Impressions_before", "Impressions_after"]]; impressions_melted = impressions_df.melt(id_vars="Topic", value_vars=["Impressions_before", "Impressions_after"], var_name="Period", value_name="Impressions"); impressions_melted["Period"] = impressions_melted["Period"].str.replace("Impressions_", ""); fig_impressions = px.bar(impressions_melted, x="Topic", y="Impressions", color="Period", barmode="group", title="Total Impressions per Topic", labels={"Impressions": "Total Impressions"}, text_auto=True); fig_impressions.update_traces(textposition='outside'); st.plotly_chart(fig_impressions, use_container_width=True)
                      except Exception as e: st.error(f"Error plotting Topic Impressions: {e}")
@@ -418,11 +421,10 @@ def google_search_console_analysis_page():
 
 # --- Main Execution ---
 def main():
-    # set_page_config is already called at the top level
-    google_search_console_analysis_page()
+    # Config is called at top level now
+    google_search_console_analysis_page() # Run the app logic
     st.markdown("---")
-    # --- ADDED LINK HERE ---
-    st.markdown(
+    st.markdown( # Add the attribution link
         "Created by <a href='https://theseoconsultant.ai/' target='_blank'>The SEO Consultant.ai</a>",
         unsafe_allow_html=True
     )
