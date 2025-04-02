@@ -510,7 +510,7 @@ def main():
     google_search_console_analysis_page()
     st.markdown("---") # Add a separator line
     # Add the link at the bottom
-    st.markdown("[Created by The SEO Consultant.ai](https://theseoconsultant.ai/)")
+    st.markdown("Created by [The SEO Consultant.ai](https://theseoconsultant.ai/)")
 
 if __name__ == "__main__":
     main()
